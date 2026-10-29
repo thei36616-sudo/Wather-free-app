@@ -163,6 +163,8 @@ body.ph-morning .glow{--gl:rgba(255,175,125,.75);opacity:1}body.ph-evening .glow
 .pp .btn{margin-top:4px}
 .leaflet-container a.leaflet-popup-close-button{display:none}
 .ib.act{background:rgba(255,255,255,.4)}
+.mapsec.dk .leaflet-base-pane{filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.7)}
+[hidden]{display:none!important}
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 18px);transform:translate(-50%,30px);opacity:0;z-index:1000;padding:12px 18px;border-radius:18px;max-width:92vw;font-size:14px;text-align:center;pointer-events:none;transition:opacity .4s,transform .4s}.toast.on{opacity:1;transform:translate(-50%,0)}.pn{font-size:16px;font-weight:600}
 </style>
 </head>
@@ -173,6 +175,7 @@ body.ph-morning .glow{--gl:rgba(255,175,125,.75);opacity:1}body.ph-evening .glow
  <form class="glass top" id="f" role="search" autocomplete="off">
   <span class="si" data-ic="search"></span>
   <input id="q" placeholder="Знайти місто" aria-label="Місто">
+  <button class="ib" type="button" id="aod" hidden aria-label="Погода на екрані блокування та AOD" title="Погода на екрані блокування та AOD"><span data-ic="smartphone"></span></button>
   <button class="ib" type="button" id="vpn" aria-label="Перевірка VPN"></button>
   <button class="ib" type="button" id="loc" aria-label="Моє місцезнаходження"><span data-ic="locate"></span></button>
   <button class="ib" type="button" id="rf" aria-label="Оновити"><span data-ic="refresh"></span></button>
@@ -212,6 +215,7 @@ gauge:`<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>`,
 umbrella:`<path d="M22 12a10 10 0 0 0-20 0Z"/><path d="M12 12v8a2 2 0 0 0 4 0"/><path d="M12 2v1"/>`,
 sunrise:`<path d="M12 2v8M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0"/>`,
 sunset:`<path d="M12 10V2M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M16 6l-4 4-4-4M16 18a4 4 0 0 0-8 0"/>`,
+smartphone:`<rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/>`,
 layers:`<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>`,
 play:`<path d="m6 3 14 9-14 9z"/>`,
 pause:`<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>`,
@@ -293,7 +297,6 @@ setInterval(()=>{if(data&&phaseSel==="auto")applyTheme()},6e4);
 /* ---------- precipitation map ---------- */
 const CFG={osmTiles:"https://tile.openstreetmap.org/{z}/{x}/{y}.png",nominatim:"https://nominatim.openstreetmap.org"};
 const OSMA='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
-let baseSel=store.get("base","auto");
 const revCache=store.get("rev",{});let lastRev=0,revOff=0;
 async function reverse(lat,lon){
   const k=lat.toFixed(2)+","+lon.toFixed(2);
@@ -317,7 +320,7 @@ const loadLeaflet=()=>LP||(LP=new Promise((res,rej)=>{
 function buildMapSec(){
   if(mapSec)return;
   mapSec=document.createElement("section");mapSec.className="glass mapsec";
-  mapSec.innerHTML=`<div class="mh"><h2>Карта опадів</h2><div class="mb"><button class="ib sm${baseSel==="osm"?" act":""}" data-m="base" aria-label="Стиль карти: Авто або OpenStreetMap" title="Стиль карти: ${baseSel==="osm"?"OpenStreetMap":"Авто"}">${ic("layers")}</button><button class="ib sm" data-m="home" aria-label="До мого міста">${ic("locate")}</button><button class="ib sm" data-m="big" aria-label="Збільшити карту">${ic("maximize")}</button></div></div>
+  mapSec.innerHTML=`<div class="mh"><h2>Карта опадів</h2><div class="mb"><button class="ib sm" data-m="home" aria-label="До мого міста">${ic("locate")}</button><button class="ib sm" data-m="big" aria-label="Збільшити карту">${ic("maximize")}</button></div></div>
   <div class="mapwrap"><div class="mapbox"></div><div class="mload">Завантаження карти…</div></div>
   <div class="mc"><button class="ib" data-m="play" aria-label="Відтворити">${ic("pause")}</button><input type="range" min="0" max="0" value="0" aria-label="Час радара"><span class="mt">—</span></div>
   <div class="lg"><span>Слабкі</span><i></i><span>Сильні опади</span></div>
@@ -326,7 +329,6 @@ function buildMapSec(){
   mapSec.onclick=e=>{const b=e.target.closest("[data-m]");if(!b)return;const k=b.dataset.m;
     if(k==="play")setPlay(!MP.play);
     else if(k==="home"&&MP.map)MP.map.flyTo([place.lat,place.lon],7);
-    else if(k==="base"){baseSel=baseSel==="osm"?"auto":"osm";store.set("base",baseSel);b.classList.toggle("act",baseSel==="osm");b.title="Стиль карти: "+(baseSel==="osm"?"OpenStreetMap":"Авто");setBase()}
     else if(k==="big"){const on=mapSec.classList.toggle("big");b.innerHTML=ic(on?"minimize":"maximize");MP.map&&setTimeout(()=>MP.map.invalidateSize(),60);on&&mapSec.scrollIntoView({behavior:RM?"auto":"smooth",block:"start"})}};
   ref.range.oninput=()=>{setPlay(false);show(+ref.range.value)};
   ref.ml.onclick=()=>{if(!MP.map)startMap()};
@@ -347,6 +349,7 @@ async function startMap(){
     MP.place=place;
     MP.map=L.map(ref.box,{center:[place.lat,place.lon],zoom:6,minZoom:3,maxZoom:10,worldCopyJump:true});
     MP.map.attributionControl.setPrefix(false);
+    MP.map.createPane("base").style.zIndex=150;
     setBase();
     MP.marker=L.marker([place.lat,place.lon],{icon:L.divIcon({className:"pin",html:"<span></span>",iconSize:[20,20]}),keyboard:false}).addTo(MP.map);
     MP.map.on("click",onMapClick);
@@ -360,21 +363,17 @@ function toast(m){
   t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),7000);
 }
 function setBase(){
-  if(!MP.map||!window.L||!data)return;
-  const osm=baseSel==="osm",u=osm?CFG.osmTiles:`https://{s}.basemaps.cartocdn.com/${curPhase()==="night"?"dark_all":"light_all"}/{z}/{x}/{y}{r}.png`;
-  if(MP.baseU===u)return;
-  if(MP.base)MP.map.removeLayer(MP.base);
-  MP.baseU=u;
-  const lay=L.tileLayer(u,osm?{maxZoom:19,attribution:OSMA}:{subdomains:"abcd",maxZoom:19,attribution:OSMA+" &copy; CARTO"}).addTo(MP.map);
+  if(mapSec)mapSec.classList.toggle("dk",!!data&&curPhase()==="night");
+  if(!MP.map||!window.L||MP.base)return;
+  const lay=L.tileLayer(CFG.osmTiles,{pane:"base",maxZoom:19,attribution:OSMA}).addTo(MP.map);
   let ok=0,bad=0,told=false;
   lay.on("tileload",()=>ok++);
   lay.on("tileerror",()=>{
     bad++;
-    if(ok>0||bad<3||lay!==MP.base)return;
-    if(osm){baseSel="auto";store.set("base","auto");MP.baseU="";const b=document.querySelector("[data-m=base]");b&&b.classList.remove("act");setBase();toast("Сервер OpenStreetMap відхилив запит (403). Увімкнено запасну карту.")}
-    else if(!told){told=true;toast("Підкладку карти не вдалося завантажити. Відкрийте застосунок через HTTPS-хостинг, а не як локальний файл.")}
+    if(ok>0||bad<3||told)return;
+    told=true;toast("Сервер OpenStreetMap не віддає плитки (можлива помилка 403). Відкрийте застосунок через HTTPS-хостинг, а не як локальний файл.");
   });
-  MP.base=lay;lay.bringToBack();
+  MP.base=lay;
 }
 async function loadFrames(){
   try{
@@ -447,6 +446,7 @@ function render(anim){
   countUp($("#tp"),unit==="c"?shownTemp:shownTemp*9/5+32,unit==="c"?c.temperature_2m:c.temperature_2m*9/5+32);
   shownTemp=c.temperature_2m;
   drawChart();tilt($("#hero"));drawSeg();mountMap();
+  if(window.AndroidAOD)try{AndroidAOD.setPlace(place.name,place.lat,place.lon,unit)}catch(e){}
   $("#st").onclick=toggleFav;
   document.querySelectorAll(".day").forEach(b=>b.onclick=()=>{sel=+b.dataset.i;document.querySelectorAll(".day").forEach(x=>x.setAttribute("aria-pressed",x===b));drawChart()});
 }
@@ -565,6 +565,14 @@ function geo(){
 }
 $("#loc").onclick=geo;
 document.querySelectorAll("[data-ic]").forEach(e=>e.innerHTML=ic(e.dataset.ic));
+function initAod(){
+  const b=$("#aod");if(!window.AndroidAOD)return;
+  b.hidden=false;
+  const sync=()=>{let on=false;try{on=AndroidAOD.isEnabled()}catch(e){}b.classList.toggle("act",on);return on};sync();
+  b.onclick=()=>{const want=!sync();try{AndroidAOD.setEnabled(want)}catch(e){return}
+    setTimeout(()=>{const on=sync();toast(on?"Погоду додано до сповіщень. Її видно на екрані блокування й AOD залежно від налаштувань Samsung.":want?"Дозвольте сповіщення для застосунку в налаштуваннях телефона.":"Погоду на екрані блокування вимкнено.")},900)};
+}
+initAod();
 renderChips();
 const saved=store.get("p",null);saved?load(saved):geo();
 if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
