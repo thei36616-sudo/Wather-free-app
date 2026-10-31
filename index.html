@@ -176,12 +176,16 @@ body.ph-morning .glow{--gl:rgba(255,175,125,.75);opacity:1}body.ph-evening .glow
 .mr>span{flex:0 0 100%;font-size:13px;color:var(--mut)}
 .mr input{flex:1;min-width:0;accent-color:#fff}
 .mr em{font-style:normal;min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
-.mapsec .radar{filter:hue-rotate(var(--rh,0deg))}
+
 @media(max-width:520px){
  .top{flex-wrap:wrap;padding:10px 12px;justify-content:space-between}
  .top input{flex:1 0 calc(100% - 40px)}
  .top .ib{flex:1 1 0;width:auto;max-width:64px;border-radius:14px}
 }
+.mt{min-width:170px}.mt.fc{color:var(--acc)}
+.mr input[type=url],.mr input[type=password]{flex:1 1 100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:14px}
+.mr input::placeholder{color:rgba(255,255,255,.6)}
+.lgi{flex:1;min-width:0;height:14px;object-fit:fill;border-radius:4px}
 </style>
 </head>
 <body>
@@ -331,11 +335,11 @@ async function reverse(lat,lon){
   if(out.name){revCache[k]=out;const ks=Object.keys(revCache);if(ks.length>100)delete revCache[ks[0]];store.set("rev",revCache)}
   return out;
 }
-const MC0={base:"auto",op:80,hue:0,spd:1,smooth:1,snow:1,pin:1};
+const MC0={base:"auto",op:80,pal:1,hz:1,spd:1,pin:1,fc:1};
 let MC={...MC0,...store.get("mapcfg",{})};
 const saveMC=()=>store.set("mapcfg",MC);
 const SP=()=>[900,550,300][MC.spd]||550;
-const MP={map:null,marker:null,base:null,baseU:"",layers:[],frames:[],idx:0,play:!RM,timer:null,place:null,starting:false};
+const MP={map:null,marker:null,base:null,baseU:"",layers:[],rad:[],fcl:[],fc:null,hasNow:false,frames:[],idx:0,play:false,timer:null,place:null,starting:false};
 let mapSec=null,ref={},LP=null;
 const loadLeaflet=()=>LP||(LP=new Promise((res,rej)=>{
   const l=document.createElement("link");l.rel="stylesheet";l.href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";document.head.appendChild(l);
@@ -347,10 +351,10 @@ function buildMapSec(){
   mapSec.innerHTML=`<div class="mh"><h2>Карта опадів</h2><div class="mb"><button class="ib sm" data-m="set" aria-label="Налаштування карти" title="Налаштування карти">${ic("sliders")}</button><button class="ib sm" data-m="home" aria-label="До мого міста">${ic("locate")}</button><button class="ib sm" data-m="big" aria-label="Збільшити карту">${ic("maximize")}</button></div></div>
   <div class="mset"></div>
   <div class="mapwrap"><div class="mapbox"></div><div class="mload">Завантаження карти…</div></div>
-  <div class="mc"><button class="ib" data-m="play" aria-label="Відтворити">${ic("pause")}</button><input type="range" min="0" max="0" value="0" aria-label="Час радара"><span class="mt">—</span></div>
-  <div class="lg"><span>Слабкі</span><i></i><span>Сильні опади</span></div>
-  <p class="mn">Радар за останні 2 години. Торкніться карти, щоб побачити погоду в точці.</p>`;
-  ref={set:mapSec.querySelector(".mset"),box:mapSec.querySelector(".mapbox"),ml:mapSec.querySelector(".mload"),range:mapSec.querySelector("input"),time:mapSec.querySelector(".mt"),play:mapSec.querySelector('[data-m=play]')};
+  <div class="mc"><button class="ib" data-m="play" aria-label="Відтворити">${ic("play")}</button><input type="range" min="0" max="0" value="0" aria-label="Час радара"><span class="mt">—</span></div>
+  <div class="lg"><span>Слабкі</span><i></i><img class="lgi" alt="Шкала опадів" hidden><span>Сильні опади</span></div>
+  <p class="mn">Радар і прогноз дає Rainbow Weather (потрібен ключ або проксі в налаштуваннях карти). Без нього показується лише прогноз моделі Open-Meteo, це не радар. Торкніться карти, щоб побачити погоду в точці.</p>`;
+  ref={lg:mapSec.querySelector(".lg"),set:mapSec.querySelector(".mset"),box:mapSec.querySelector(".mapbox"),ml:mapSec.querySelector(".mload"),range:mapSec.querySelector("input"),time:mapSec.querySelector(".mt"),play:mapSec.querySelector('[data-m=play]')};
   mapSec.onclick=e=>{const b=e.target.closest("[data-m]");if(!b)return;const k=b.dataset.m;
     if(k==="set"){ref.set.classList.toggle("open");b.classList.toggle("act")}
     else if(k==="play")setPlay(!MP.play);
@@ -359,15 +363,21 @@ function buildMapSec(){
   ref.range.oninput=()=>{setPlay(false);show(+ref.range.value)};
   ref.ml.onclick=()=>{if(!MP.map)startMap()};
   document.addEventListener("visibilitychange",()=>{if(document.hidden)setPlay(false)});
-  setInterval(()=>{MP.map&&loadFrames()},6e4);
+  setInterval(()=>{if(MP.map)loadForecast()},6e4);
+  setInterval(()=>{if(MP.map&&!document.hidden)loadFrames()},3e5);
   ref.set.onclick=e=>{
     const b=e.target.closest("button");if(!b)return;
     if(b.dataset.reset)MC={...MC0};
     else if(b.dataset.t)MC[b.dataset.k]=MC[b.dataset.k]?0:1;
     else if(b.dataset.k){const v=b.dataset.v;MC[b.dataset.k]=isNaN(+v)?v:+v}
+    else if(b.dataset.save){
+      RB.proxy=ref.set.querySelector("[data-f=proxy]").value.trim();RB.key=ref.set.querySelector("[data-f=key]").value.trim();
+      saveRB();MP.authWarned=false;drawMset();MP.map&&loadFrames(true);toast("Налаштування Rainbow збережено.");return}
     else return;
     saveMC();drawMset();applyMC();
-    if(b.dataset.reset||b.dataset.k==="smooth"||b.dataset.k==="snow")MP.map&&loadFrames(true);
+    if(b.dataset.reset||b.dataset.k==="hz")MP.map&&loadFrames(true);
+    else if(b.dataset.k==="pal")MP.map&&resetRad();
+    if(b.dataset.reset||b.dataset.k==="fc")MP.map&&(MC.fc?loadForecast(true):clearFc());
   };
   ref.set.oninput=e=>{const r=e.target.closest("[data-r]");if(!r)return;MC.op=+r.value;r.nextElementSibling.textContent=MC.op+"%";saveMC();applyMC()};
   drawMset();applyMC();
@@ -392,7 +402,10 @@ async function startMap(){
     if(!MC.pin)MP.marker.remove();
     MP.map.on("click",onMapClick);
     setTimeout(()=>MP.map.invalidateSize(),100);
+    MP.map.on("movestart zoomstart",prune);
+    MP.map.on("moveend",()=>{clearTimeout(MP.fct);MP.fct=setTimeout(()=>loadForecast(),1500)});
     await loadFrames();
+    loadForecast();
   }catch(e){ref.ml.classList.remove("hide");ref.ml.textContent="Не вдалося завантажити карту. Торкніться, щоб повторити."}
   MP.starting=false;
 }
@@ -413,28 +426,147 @@ function setBase(){
   });
   MP.base=lay;
 }
+/* ---- Rainbow Weather: радар і прогноз (Tiles API) ---- */
+const RB0={proxy:"",key:""};
+let RB={...RB0,...store.get("rbcfg",{})};
+const saveRB=()=>store.set("rbcfg",RB);
+const rbReady=()=>!!(RB.proxy||RB.key);
+const rbBase=()=>RB.proxy?RB.proxy.replace(/\/+$/,""):"https://api.rainbow.ai";
+const rbQ=c=>{const q=[];if(c)q.push("color="+MC.pal);if(!RB.proxy&&RB.key)q.push("token="+encodeURIComponent(RB.key));return q.length?"?"+q.join("&"):""};
+const PAL={0:"rainbow",1:"twc",2:"dark_sky",3:"meteored",4:"nexrad",5:"rainviewer",6:"selex",7:"titan",8:"universal_blue",9:"twc_rv"};
+function updateLegend(){
+  if(!ref.lg)return;
+  const img=ref.lg.querySelector("img"),g=ref.lg.querySelector("i"),rb=MP.hasNow;
+  img.hidden=!rb;g.hidden=rb;
+  if(rb){img.onerror=()=>{img.hidden=true;g.hidden=false};img.src=`https://doc.rainbow.ai/images/palletes/${PAL[MC.pal]||"twc"}_rain.png`}
+}
 async function loadFrames(force){
+  MP.rbBad=false;
+  if(!rbReady()){
+    MP.rad.forEach(l=>l&&MP.map.removeLayer(l));
+    MP.rad=[];MP.frames=[];MP.hasNow=false;MP.lastT=0;
+    ref.ml.classList.add("hide");updateLegend();syncAll(MP.idx);loadForecast(true);
+    return;
+  }
   try{
-    const r=await fetch("https://api.rainviewer.com/public/weather-maps.json",{cache:"no-store"});if(!r.ok)throw 0;
-    const j=await r.json(),past=(j.radar&&j.radar.past)||[];if(!past.length)throw 0;
-    const last=past[past.length-1].time;
-    if(!force&&MP.layers.length&&MP.lastT===last)return;
-    MP.lastT=last;MP.host=j.host;MP.frames=past;buildLayers();ref.ml.classList.add("hide");
+    let S=0;
+    try{
+      const r=await fetch(`${rbBase()}/tiles/v1/snapshot${rbQ(false)}`,{cache:"no-store"});
+      if(r.status===401||r.status===403)throw"auth";
+      if(!r.ok)throw 0;
+      S=+(await r.json()).snapshot;
+    }catch(e){
+      if(e==="auth"){if(!MP.authWarned){MP.authWarned=true;toast("Rainbow відхилив ключ (401/403). Перевірте ключ або проксі в налаштуваннях карти.")}throw 0}
+      S=Math.floor((Date.now()/1000-1200)/600)*600;
+    }
+    if(!S)throw 0;
+    if(!force&&MP.rad.length&&MP.lastT===S&&MP.lastHz===MC.hz)return;
+    const past=[90,60,30,0].map(m=>({time:S-m*60,snap:S-m*60,ft:0}));
+    const step=MC.hz*600,fut=[1,2,3,4,5,6].map(k=>({time:S+k*step,snap:S,ft:k*step}));
+    MP.rad.forEach(l=>l&&MP.map.removeLayer(l));
+    MP.fcl.forEach(l=>MP.map.removeLayer(l));MP.fcl=[];MP.fc=null;
+    MP.lastT=S;MP.lastHz=MC.hz;MP.frames=past.concat(fut);MP.hasNow=true;
+    MP.rad=MP.frames.map(()=>null);
+    ref.ml.classList.add("hide");updateLegend();
+    syncAll(past.length-1);setPlay(MP.play);
   }catch(e){
-    if(MP.layers.length)return;
-    ref.ml.classList.remove("hide");ref.ml.textContent="Радар зараз недоступний. Торкніться, щоб повторити.";
+    if(MP.rad.length)return;
+    ref.ml.classList.remove("hide");ref.ml.textContent="Rainbow зараз недоступний. Торкніться, щоб повторити.";
     ref.ml.onclick=()=>{ref.ml.onclick=()=>{if(!MP.map)startMap()};MP.map&&loadFrames(true)};
   }
 }
-function buildLayers(){
-  MP.layers.forEach(l=>MP.map.removeLayer(l));
-  const o=`${MC.smooth?1:0}_${MC.snow?1:0}`;
-  MP.layers=MP.frames.map(f=>L.tileLayer(`${MP.host}${f.path}/256/{z}/{x}/{y}/2/${o}.png`,{opacity:0,maxNativeZoom:7,maxZoom:10,className:"radar",attribution:"Радар: RainViewer"}).addTo(MP.map));
-  ref.range.max=MP.frames.length-1;show(MP.frames.length-1);setPlay(MP.play);
+function syncAll(i){
+  MP.layers=MP.rad.concat(MP.fcl);
+  ref.range.max=Math.max(0,MP.layers.length-1);
+  show(Math.max(0,Math.min(i,MP.layers.length-1)));
+}
+// Плитки радара вантажимо лише для кадру, який зараз показано, щоб не витрачати ліміт запитів
+function mkLayer(i){
+  const f=MP.frames[i];
+  const lay=L.tileLayer(`${rbBase()}/tiles/v1/precip/${f.snap}/${f.ft}/{z}/{x}/{y}${rbQ(true)}`,{opacity:0,maxNativeZoom:7,maxZoom:10,noWrap:true,className:"radar",attribution:'Радар: <a href="https://rainbow.ai" target="_blank" rel="noopener">Rainbow Weather</a>'});
+  let ok=0,bad=0;
+  lay.on("tileload",()=>ok++);
+  lay.on("tileerror",()=>{bad++;if(!ok&&bad>=6)rbFail()});
+  return lay;
+}
+function hideOthers(i){MP.layers.forEach((l,k)=>{if(l&&k!==i&&MP.map.hasLayer(l))l.setOpacity(0)})}
+function ensureOn(i){
+  if(i!==MP.idx||!MP.map)return;
+  if(i<MP.rad.length){
+    const l=MP.rad[i]||(MP.rad[i]=mkLayer(i));
+    const fresh=!MP.map.hasLayer(l);
+    MP.layers[i]=l;
+    if(fresh){l.addTo(MP.map);l.once("load",()=>{if(MP.idx===i)hideOthers(i)});setTimeout(()=>{if(MP.idx===i)hideOthers(i)},2500)}
+    l.setOpacity(MC.op/100);
+    if(!fresh)hideOthers(i);
+  }else hideOthers(i);
+}
+function prune(){MP.rad.forEach((l,k)=>{if(l&&k!==MP.idx&&MP.map.hasLayer(l))MP.map.removeLayer(l)})}
+function resetRad(){MP.rad.forEach(l=>l&&MP.map.removeLayer(l));MP.rad=MP.frames.map(()=>null);syncAll(MP.idx)}
+function rbFail(){
+  if(MP.rbBad)return;MP.rbBad=true;
+  toast("Rainbow не віддає плитки. Перевірте ключ, адресу проксі та ліміт запитів.");
+  MP.hasNow=false;updateLegend();loadForecast(true);
+}
+/* ---- прогноз опадів на годину вперед (модель Open-Meteo, сітка точок) ---- */
+const STOPS=[[.05,150,210,255,0],[.2,150,210,255,110],[1,70,150,255,170],[3,40,90,230,200],[8,120,50,200,215],[20,220,50,150,230]];
+function col(v){
+  if(!(v>STOPS[0][0]))return[0,0,0,0];
+  for(let i=1;i<STOPS.length;i++){if(v<=STOPS[i][0]){const a=STOPS[i-1],b=STOPS[i],t=(v-a[0])/(b[0]-a[0]);return[1,2,3,4].map(k=>Math.round(a[k]+(b[k]-a[k])*t))}}
+  return STOPS[STOPS.length-1].slice(1);
+}
+const bil=(v,N,fx,fy)=>{
+  const x0=Math.max(0,Math.min(N-2,Math.floor(fx))),y0=Math.max(0,Math.min(N-2,Math.floor(fy)));
+  const tx=Math.min(1,Math.max(0,fx-x0)),ty=Math.min(1,Math.max(0,fy-y0));
+  const a=v[y0*N+x0],b=v[y0*N+x0+1],c=v[(y0+1)*N+x0],d=v[(y0+1)*N+x0+1];
+  return(a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty;
+};
+function renderGrid(vals,N,S,Nn,W,E){
+  const Wp=192,Hp=192,cv=document.createElement("canvas");cv.width=Wp;cv.height=Hp;
+  const g=cv.getContext("2d"),im=g.createImageData(Wp,Hp);
+  const my=la=>Math.log(Math.tan(Math.PI/4+la*Math.PI/360)),yT=my(Nn),yB=my(S);
+  for(let y=0;y<Hp;y++){
+    const lat=(2*Math.atan(Math.exp(yT+(yB-yT)*(y+.5)/Hp))-Math.PI/2)*180/Math.PI,fy=(Nn-lat)/(Nn-S)*(N-1);
+    for(let x=0;x<Wp;x++){
+      const c=col(bil(vals,N,(x+.5)/Wp*(N-1),fy)),o=(y*Wp+x)*4;
+      im.data[o]=c[0];im.data[o+1]=c[1];im.data[o+2]=c[2];im.data[o+3]=c[3];
+    }
+  }
+  g.putImageData(im,0,0);return cv.toDataURL("image/png");
+}
+function clearFc(){
+  MP.fcl.forEach(l=>MP.map.removeLayer(l));MP.fcl=[];MP.fc=null;
+  syncAll(MP.idx);
+}
+async function loadForecast(force){
+  if(!MC.fc||!MP.map||MP.hasNow||MP.fcBusy||MP.map.getZoom()<4)return;
+  const vb=MP.map.getBounds();
+  if(!force&&MP.fc&&Date.now()-MP.fc.at<6e5&&MP.fc.bounds.contains(vb))return;
+  MP.fcBusy=true;
+  try{
+    const pb=vb.pad(.25),N=10,S=Math.max(-85,pb.getSouth()),Nn=Math.min(85,pb.getNorth()),W=Math.max(-180,pb.getWest()),E=Math.min(180,pb.getEast());
+    const la=[],lo=[];
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){la.push((Nn-(Nn-S)*r/(N-1)).toFixed(2));lo.push((W+(E-W)*c/(N-1)).toFixed(2))}
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la.join(",")}&longitude=${lo.join(",")}&minutely_15=precipitation&forecast_minutely_15=8&timeformat=unixtime&timezone=UTC`);
+    if(!r.ok)throw 0;
+    let j=await r.json();if(!Array.isArray(j))j=[j];
+    const times=j[0].minutely_15.time,ns=Date.now()/1000;
+    const ix=times.map((t,i)=>i).filter(i=>times[i]>ns-300).slice(0,4);
+    if(!ix.length)throw 0;
+    const frames=ix.map(i=>({time:times[i],url:renderGrid(j.map(x=>(x.minutely_15.precipitation[i]||0)*4),N,S,Nn,W,E)}));
+    const bounds=L.latLngBounds([S,W],[Nn,E]);
+    MP.fcl.forEach(l=>MP.map.removeLayer(l));
+    MP.fc={at:Date.now(),bounds,frames};
+    MP.fcl=frames.map(f=>L.imageOverlay(f.url,bounds,{opacity:0,className:"radar",interactive:false}).addTo(MP.map));
+    if(!MP.attr){MP.attr=true;MP.map.attributionControl.addAttribution('Прогноз: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>')}
+    ref.ml.classList.add("hide");
+    syncAll(MP.idx);
+  }catch(e){if(!MP.fcWarned){MP.fcWarned=true;toast("Не вдалося отримати прогноз опадів на годину від моделі.")}}
+  MP.fcBusy=false;
 }
 function applyMC(){
   if(!mapSec)return;
-  mapSec.style.setProperty("--rh",MC.hue+"deg");
+  updateLegend();
   setBase();
   if(MP.layers.length)show(MP.idx);
   if(MP.marker&&MP.map){MC.pin?MP.marker.addTo(MP.map):MP.marker.remove()}
@@ -442,24 +574,36 @@ function applyMC(){
 function drawMset(){
   const sg=(k,items)=>`<div class="sgm" role="group">${items.map(([v,t])=>`<button class="btn" data-k="${k}" data-v="${v}" aria-pressed="${MC[k]==v}">${t}</button>`).join("")}</div>`;
   const tg=(k,t)=>`<button class="btn" data-k="${k}" data-t="1" aria-pressed="${!!MC[k]}">${t}</button>`;
+  const st=rbReady()?(RB.proxy?"Підключено через проксі.":"Підключено напряму за ключем."):"Не підключено: радара немає, показується лише прогноз моделі.";
   ref.set.innerHTML=`<div class="mr"><span>Підкладка карти</span>${sg("base",[["auto","Авто"],["light","Світла"],["dark","Темна"]])}</div>
-  <div class="mr"><span>Колір радара</span>${sg("hue",[[0,"Синій"],[-90,"Зелений"],[60,"Фіолетовий"],[180,"Помаранчевий"]])}</div>
+  <div class="mr"><span>Палітра радара (Rainbow)</span>${sg("pal",[[1,"TWC"],[0,"Rainbow"],[2,"Dark Sky"],[4,"NEXRAD"],[7,"TITAN"],[8,"Синя"]])}</div>
   <div class="mr"><span>Прозорість радара</span><input type="range" min="20" max="100" step="5" value="${MC.op}" data-r="op" aria-label="Прозорість радара"><em>${MC.op}%</em></div>
+  <div class="mr"><span>Горизонт прогнозу</span>${sg("hz",[[1,"1 год"],[2,"2 год"],[4,"4 год"]])}</div>
   <div class="mr"><span>Швидкість анімації</span>${sg("spd",[[0,"Повільно"],[1,"Звичайно"],[2,"Швидко"]])}</div>
-  <div class="mr"><span>Показувати</span><div class="sgm">${tg("smooth","Згладжування")}${tg("snow","Сніг іншим кольором")}${tg("pin","Мітка міста")}</div></div>
-  <div class="va"><button class="btn" data-reset="1">Скинути</button></div>`;
+  <div class="mr"><span>Показувати</span><div class="sgm">${tg("fc","Прогноз моделі без ключа")}${tg("pin","Мітка міста")}</div></div>
+  <div class="mr"><span>Rainbow Weather. ${st}</span>
+   <input type="url" data-f="proxy" placeholder="Адреса вашого проксі (рекомендовано)" value="${esc(RB.proxy)}" autocomplete="off" aria-label="Адреса проксі Rainbow">
+   <input type="password" data-f="key" placeholder="Або API-ключ (прямий режим)" value="${esc(RB.key)}" autocomplete="off" aria-label="API-ключ Rainbow">
+   <button class="btn" data-save="1">Зберегти й оновити</button></div>
+  <div class="va"><button class="btn" data-reset="1">Скинути вигляд</button></div>`;
 }
 function show(i){
-  MP.idx=i;MP.layers.forEach((l,k)=>l.setOpacity(k===i?MC.op/100:0));
-  ref.range.value=i;const f=MP.frames[i];if(!f)return;
+  MP.idx=i;
+  const cur=MP.layers[i];
+  if(cur&&MP.map.hasLayer(cur)){cur.setOpacity(MC.op/100);hideOthers(i)}
+  clearTimeout(MP.lt);MP.lt=setTimeout(()=>ensureOn(i),cur?0:120);
+  ref.range.value=i;
+  const n=MP.rad.length,f=i<n?MP.frames[i]:(MP.fc&&MP.fc.frames[i-n]);
+  if(!f){ref.time.textContent="—";ref.time.classList.remove("fc");return}
   let t;try{t=new Date(f.time*1000).toLocaleTimeString("uk",{hour:"2-digit",minute:"2-digit",timeZone:data.timezone})}catch(e){t=hr(f.time*1000)}
-  const ago=Math.round((Date.now()/1000-f.time)/60);
-  ref.time.textContent=`${t} · ${ago<=5?"зараз":ago+" хв тому"}`;
+  const d=Math.round((f.time-Date.now()/1000)/60),fc=d>1;
+  ref.time.classList.toggle("fc",fc);
+  ref.time.textContent=fc?`Прогноз · ${t} (через ${d} хв)`:`${t} · ${-d<=5?"зараз":-d+" хв тому"}`;
 }
 function setPlay(on){
   MP.play=on;clearTimeout(MP.timer);
   if(ref.play){ref.play.innerHTML=ic(on?"pause":"play");ref.play.setAttribute("aria-label",on?"Пауза":"Відтворити")}
-  if(on&&MP.frames.length>1){const tick=()=>{MP.idx=(MP.idx+1)%MP.frames.length;show(MP.idx);MP.timer=setTimeout(tick,MP.idx===MP.frames.length-1?1500:SP())};MP.timer=setTimeout(tick,SP())}
+  if(on&&MP.layers.length>1){const tick=()=>{MP.idx=(MP.idx+1)%MP.layers.length;show(MP.idx);MP.timer=setTimeout(tick,MP.idx===MP.layers.length-1?1500:SP())};MP.timer=setTimeout(tick,SP())}
 }
 async function onMapClick(e){
   const {lat,lng}=e.latlng;
