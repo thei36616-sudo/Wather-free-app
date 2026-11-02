@@ -335,7 +335,7 @@ async function reverse(lat,lon){
   if(out.name){revCache[k]=out;const ks=Object.keys(revCache);if(ks.length>100)delete revCache[ks[0]];store.set("rev",revCache)}
   return out;
 }
-const MC0={base:"auto",op:80,pal:1,hz:1,spd:1,pin:1,fc:1};
+const MC0={base:"auto",op:80,pal:1,hz:2,spd:1,pin:1,fc:1};
 let MC={...MC0,...store.get("mapcfg",{})};
 const saveMC=()=>store.set("mapcfg",MC);
 const SP=()=>[900,550,300][MC.spd]||550;
@@ -353,8 +353,8 @@ function buildMapSec(){
   <div class="mapwrap"><div class="mapbox"></div><div class="mload">Завантаження карти…</div></div>
   <div class="mc"><button class="ib" data-m="play" aria-label="Відтворити">${ic("play")}</button><input type="range" min="0" max="0" value="0" aria-label="Час радара"><span class="mt">—</span></div>
   <div class="lg"><span>Слабкі</span><i></i><img class="lgi" alt="Шкала опадів" hidden><span>Сильні опади</span></div>
-  <p class="mn">Радар і прогноз дає Rainbow Weather (потрібен ключ або проксі в налаштуваннях карти). Без нього показується лише прогноз моделі Open-Meteo, це не радар. Торкніться карти, щоб побачити погоду в точці.</p>`;
-  ref={lg:mapSec.querySelector(".lg"),set:mapSec.querySelector(".mset"),box:mapSec.querySelector(".mapbox"),ml:mapSec.querySelector(".mload"),range:mapSec.querySelector("input"),time:mapSec.querySelector(".mt"),play:mapSec.querySelector('[data-m=play]')};
+  <p class="mn"><span class="snap"></span> Радар і прогноз дає Rainbow Weather (потрібен ключ або проксі в налаштуваннях карти). Без нього показується лише прогноз моделі Open-Meteo, це не радар. Торкніться карти, щоб побачити погоду в точці.</p>`;
+  ref={snap:mapSec.querySelector(".snap"),lg:mapSec.querySelector(".lg"),set:mapSec.querySelector(".mset"),box:mapSec.querySelector(".mapbox"),ml:mapSec.querySelector(".mload"),range:mapSec.querySelector("input"),time:mapSec.querySelector(".mt"),play:mapSec.querySelector('[data-m=play]')};
   mapSec.onclick=e=>{const b=e.target.closest("[data-m]");if(!b)return;const k=b.dataset.m;
     if(k==="set"){ref.set.classList.toggle("open");b.classList.toggle("act")}
     else if(k==="play")setPlay(!MP.play);
@@ -449,7 +449,7 @@ async function loadFrames(force){
     return;
   }
   try{
-    let S=0;
+    let S=0,est=false;
     try{
       const r=await fetch(`${rbBase()}/tiles/v1/snapshot${rbQ(false)}`,{cache:"no-store"});
       if(r.status===401||r.status===403)throw"auth";
@@ -457,15 +457,16 @@ async function loadFrames(force){
       S=+(await r.json()).snapshot;
     }catch(e){
       if(e==="auth"){if(!MP.authWarned){MP.authWarned=true;toast("Rainbow відхилив ключ (401/403). Перевірте ключ або проксі в налаштуваннях карти.")}throw 0}
-      S=Math.floor((Date.now()/1000-1200)/600)*600;
+      S=Math.floor((Date.now()/1000-1200)/600)*600;est=true;
     }
     if(!S)throw 0;
     if(!force&&MP.rad.length&&MP.lastT===S&&MP.lastHz===MC.hz)return;
     const past=[90,60,30,0].map(m=>({time:S-m*60,snap:S-m*60,ft:0}));
-    const step=MC.hz*600,fut=[1,2,3,4,5,6].map(k=>({time:S+k*step,snap:S,ft:k*step}));
+    const step=MC.hz>2?1200:600,cnt=MC.hz*3600/step,fut=Array.from({length:cnt},(_,i)=>{const k=i+1;return{time:S+k*step,snap:S,ft:k*step}});
     MP.rad.forEach(l=>l&&MP.map.removeLayer(l));
     MP.fcl.forEach(l=>MP.map.removeLayer(l));MP.fcl=[];MP.fc=null;
     MP.lastT=S;MP.lastHz=MC.hz;MP.frames=past.concat(fut);MP.hasNow=true;
+    ref.snap.textContent=`Знімок Rainbow від ${new Date(S*1000).toLocaleTimeString("uk",{hour:"2-digit",minute:"2-digit",timeZone:data.timezone})}${est?" (приблизно)":""}, оновлюється кожні 10 хв.`;
     MP.rad=MP.frames.map(()=>null);
     ref.ml.classList.add("hide");updateLegend();
     syncAll(past.length-1);setPlay(MP.play);
@@ -551,7 +552,7 @@ async function loadForecast(force){
     if(!r.ok)throw 0;
     let j=await r.json();if(!Array.isArray(j))j=[j];
     const times=j[0].minutely_15.time,ns=Date.now()/1000;
-    const ix=times.map((t,i)=>i).filter(i=>times[i]>ns-300).slice(0,4);
+    const ix=times.map((t,i)=>i).filter(i=>times[i]>ns-300).slice(0,MC.hz>=2?8:4);
     if(!ix.length)throw 0;
     const frames=ix.map(i=>({time:times[i],url:renderGrid(j.map(x=>(x.minutely_15.precipitation[i]||0)*4),N,S,Nn,W,E)}));
     const bounds=L.latLngBounds([S,W],[Nn,E]);
@@ -598,7 +599,7 @@ function show(i){
   let t;try{t=new Date(f.time*1000).toLocaleTimeString("uk",{hour:"2-digit",minute:"2-digit",timeZone:data.timezone})}catch(e){t=hr(f.time*1000)}
   const d=Math.round((f.time-Date.now()/1000)/60),fc=d>1;
   ref.time.classList.toggle("fc",fc);
-  ref.time.textContent=fc?`Прогноз · ${t} (через ${d} хв)`:`${t} · ${-d<=5?"зараз":-d+" хв тому"}`;
+  ref.time.textContent=fc?`Прогноз · ${t} (через ${d<60?d+" хв":Math.floor(d/60)+" год"+(d%60?" "+d%60+" хв":"")})`:`${t} · ${-d<=5?"зараз":-d+" хв тому"}`;
 }
 function setPlay(on){
   MP.play=on;clearTimeout(MP.timer);
